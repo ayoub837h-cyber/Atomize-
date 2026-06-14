@@ -1,0 +1,115 @@
+
+"use client";
+
+import { useEffect, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { CheckCircle2, ArrowRight } from 'lucide-react';
+import Navbar from '@/components/Navbar';
+import FooterSection from '@/components/FooterSection';
+import { motion } from 'framer-motion';
+import { useUser, useFirestore } from '@/firebase';
+import { doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
+
+export default function SuccessPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { user } = useUser();
+  const db = useFirestore();
+  const [countdown, setCountdown] = useState(5);
+  const [status, setStatus] = useState<"processing" | "ready">("processing");
+
+  useEffect(() => {
+    const plan = searchParams.get("plan");
+
+    if (plan && user) {
+      // Optimistically update Firestore for the user so they see the change immediately
+      const userRef = doc(db, 'users', user.uid);
+      
+      const updatePlan = async () => {
+        try {
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            await updateDoc(userRef, { 
+              plan: plan,
+              updatedAt: new Date().toISOString()
+            });
+          } else {
+            await setDoc(userRef, {
+              uid: user.uid,
+              email: user.email,
+              plan: plan,
+              updatedAt: new Date().toISOString()
+            });
+          }
+          setStatus("ready");
+        } catch (err) {
+          console.error("Failed to persist plan in Firestore", err);
+          // Still set ready so the user isn't stuck
+          setStatus("ready");
+        }
+      };
+
+      updatePlan();
+    } else if (!user) {
+      // If no user is logged in, we wait a bit or redirect
+      setStatus("ready");
+    }
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          router.replace('/dashboard');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [searchParams, router, user, db]);
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#0B1120]">
+      <Navbar />
+      <main className="flex-1 flex items-center justify-center p-6">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <Card className="max-w-md w-full glass-card border-green-500/20 bg-green-500/5 text-center p-8">
+            <CardHeader>
+              <div className="flex justify-center mb-4">
+                <CheckCircle2 className="w-16 h-16 text-green-500" />
+              </div>
+              <CardTitle className="text-3xl font-headline font-bold text-white">Payment Successful!</CardTitle>
+              <CardDescription className="text-white/60 mt-2">
+                Thank you for upgrading to the <span className="text-primary font-bold uppercase">{searchParams.get('plan') || 'Premium'}</span> plan.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-white/40 text-sm">
+                {status === "processing" 
+                  ? "Finalizing your workspace upgrade..." 
+                  : "Your account has been upgraded! You will be redirected to your dashboard in " + countdown + " seconds."}
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-center pt-6">
+              <Button 
+                onClick={() => router.replace('/dashboard')}
+                className="bg-primary hover:bg-primary/90 text-white w-full"
+              >
+                Go to Dashboard Now
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </CardFooter>
+          </Card>
+        </motion.div>
+      </main>
+      <FooterSection />
+    </div>
+  );
+}
